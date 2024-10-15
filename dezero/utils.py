@@ -20,7 +20,6 @@ def sum_to(x, shape):
         y = y.squeeze(lead_axis)
     return y
 
-
 def reshape_sum_backward(gy, x_shape, axis, keepdims):
     """Reshape gradient appropriately for dezero.functions.sum's backward.
 

@@ -2,6 +2,7 @@ import numpy as np
 import weakref
 import contextlib
 import dezero
+from typing import Optional
 #import dezero.functions
 
 
@@ -26,7 +27,7 @@ class Variable:
     def __init__(self, data:np.ndarray, name=None):
         if data is not None:
             if not isinstance(data, np.ndarray):
-                raise TypeError(f'{type(data)} is not  supported')
+                data = np.array(data)
             
         self.data = data
         self.name = name
@@ -51,7 +52,7 @@ class Variable:
                 funs.append(f)
                 seen_set.add(f)
                 funs.sort(key=lambda x : x.generation) 
-                
+
         add_func(self.creator)
         while funs:
             f = funs.pop()
@@ -141,13 +142,13 @@ class Variable:
         return pow(self, other)  
 
 class Function:
-    def __call__(self, *inputs: Variable):
+    def __call__(self, *inputs: Optional[Variable]):
         inputs = [as_varible(x) for x in inputs]
-        xs = [x.data for x in inputs]
-        ys = self.forward(*xs)
+        xs = [x.data for x in inputs] #data是 ndarray类型的
+        ys = self.forward(*xs) #Function的 forward返回 ndarray
         if not isinstance(ys, tuple):
             ys = (ys,)
-        outputs = [Variable(as_array(y)) for y in ys]
+        outputs = [Variable(as_array(y)) for y in ys] #最后转为Variable
 
         if Config.enable_backprop: #建立计算图
             self.generation = max(x.generation for x in inputs)
@@ -159,46 +160,60 @@ class Function:
         
         return outputs if len(outputs) > 1 else outputs[0]
 
-    def forward(self, x):
+    def forward(self, x:np.ndarray):
         raise NotImplementedError()
     
-    def backward(self, gy):
+    def backward(self, gy:Variable):
         raise NotImplementedError()
 
 class Add(Function):
-    def forward(self, x0:Variable, x1:Variable):
+    def forward(self, x0:np.ndarray, x1:np.ndarray):
+        self.x0_shape, self.x1_shape = x0.shape, x1.shape
         y = x0 + x1
         return (y, )
     
     def backward(self, gy:Variable):
-        return gy, gy
+        gx0, gx1 = gy, gy
+        if self.x0_shape != self.x1_shape:
+            gx0 = dezero.functions.sum_to(gx0,self.x0_shape)
+            gx1 = dezero.functions.sum_to(gx1, self.x1_shape)
+        return gx0, gx1
 
 class Mul(Function):
-    def forward(self, x0:Variable, x1:Variable):
+    def forward(self, x0:np.ndarray, x1:np.ndarray):
         y = x0 * x1
         return y
     
     def backward(self, gy:Variable):
         x0, x1 = self.inputs
-        return gy * x1, gy * x0
+        gx0, gx1 = gy * x1, gy * x0
+        if x0.shape != x1.shape:
+            gx0 = dezero.functions.sum_to(gx0,x0.shape)
+            gx1 = dezero.functions.sum_to(gx1, x1.shape)
+        return gx0, gx1
 
 class Neg(Function):
-    def forward(self, x:Variable):
+    def forward(self, x:np.ndarray):
         return -x
     
     def backward(self, gy:Variable):
         return -gy
 
 class Sub(Function):
-    def forward(self, x0:Variable, x1:Variable):
+    def forward(self, x0:np.ndarray, x1:np.ndarray):
+        self.x0_shape , self.x1_shape = x0.shape, x1.shape
         y = x0 - x1
         return y
     
     def backward(self, gy:Variable):
-        return gy, -gy
+        gx0, gx1 = gy, -gy
+        if self.x0_shape != self.x1_shape:
+            gx0 = dezero.functions.sum_to(gx0,self.x0_shape)
+            gx1 = dezero.functions.sum_to(gx1, self.x1_shape)
+        return gx0, gx1
 
 class Div(Function):
-    def forward(self, x0:Variable, x1:Variable):
+    def forward(self, x0:np.ndarray, x1:np.ndarray):
         y = x0 / x1
         return y
     
@@ -206,13 +221,16 @@ class Div(Function):
         x0, x1 = self.inputs
         gx0 = gy / x1
         gx1 = gy * (-x0 / x1**2)
+        if x0.shape != x1.shape:
+            gx0 = dezero.functions.sum_to(gx0,x0.shape)
+            gx1 = dezero.functions.sum_to(gx1, x1.shape)
         return gx0, gx1
 
 class Pow(Function):
     def __init__(self, c):
         self.c = c
     
-    def forward(self, x:Variable):
+    def forward(self, x:np.ndarray):
         y = x ** self.c
         return y
     

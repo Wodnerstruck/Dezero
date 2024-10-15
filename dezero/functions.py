@@ -2,20 +2,12 @@ import dezero
 from dezero.core import Function, Variable, as_varible, as_array
 import numpy as np
 
-class Square(Function):
-    def forward(self, x:Variable):
-        return x ** 2
-    
-    def backward(self, gy:Variable):
-        x, = self.inputs
-        gx = gy * 2 * x
-        return gx        
 
-def square(x:Variable):
-    return Square()(x)
-
+# =================
+# Basisc operations
+# =================
 class Exp(Function):
-    def forward(self, x:Variable):
+    def forward(self, x:np.ndarray):
         return np.exp(x)
     
     def backward(self, gy:Variable):
@@ -25,6 +17,15 @@ class Exp(Function):
 
 def exp(x:Variable):
     return Exp()(x)
+
+class Log(Function):
+    def forward(self, x:np.ndarray):
+        return np.log(x)
+    
+    def backward(self, gy:Variable):
+        x, = self.inputs
+        gx = gy / x
+        return gx
 
 class Sin(Function):
     def forward(self, x:Variable):
@@ -64,7 +65,14 @@ class Tanh(Function):
 
 def tanh(x:Variable):
     return Tanh()(x)
-    
+
+
+
+
+
+# =================
+# Tensor operations
+# =================
 class Reshape(Function):
     def __init__(self, shape):
         self.shape = shape
@@ -83,13 +91,19 @@ def reshape(x:Variable, shape):
     return Reshape(shape)(x)
 
 class Transpose(Function):
-    def forward(self, x):
-        y = np.transpose(x)
+    def __init__(self,axes=None):
+        self.axes = axes
+        
+    def forward(self, x:np.ndarray):
+        y = x.transpose(self.axes)
         return y
         
     def backward(self, gy:Variable):
-        gx = transpose(gy)
-        return gx
+        if self.axes is None:
+            return transpose(gy)
+        axes_len = len(self.axes)
+        inv_axes = tuple(np.argsort([ax % axes_len for ax in self.axes])) #将轴排为原来的顺序
+        return transpose(gy, inv_axes)
 
 def transpose(x:Variable):
     return Transpose()(x)   
@@ -147,4 +161,17 @@ def sum_to(x, shape):
     if x.shape == shape:
         return as_varible(x)
     return SumTo(shape)(x)
+
+class MatMul(Function):
+    def forward(self, x:np.ndarray, W):
+        y = x.dot(W)
+        return y
+
+    def backward(self, gy:Variable):
+        x, W = self.inputs
+        gx = matmul(gy, W.T)
+        gW = matmul(x.T, gy)
+        return gx, gW
     
+def matmul(x, W):
+    return MatMul()(x, W)
